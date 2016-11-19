@@ -1,22 +1,36 @@
 function ccp_grappa
+% CCP_GRAPPA Annotated demo for GRAPPA reconstruction
+% 
+% Code builds three gadget chains to do;
+%   pre-processing of acquisition data (k-space),
+%   reconstruction of undersampled data,
+%   extraction of images.
 %
-% Based on demo6
-% Lower-level demo, 3-chain GRAPPA reconstruction of undersampled data.
+% Usage:
+%  Convert scanner raw data to ISMRMRD format e.g. by using the executable
+%  siemens_to_ismrmrd. Example raw data is available from 
+%  https://www.ccppetmr.ac.uk/downloads
+%  Choose the GRAPPA dataset.
+%
+%  Ensure there is a listening Gadgetron - typically started in a terminal.
+%
+%  ccp_grappa
+%
+%
+% Adapted by David Atkinson from original code by Evgueni Ovtchinnikov
+% See also CCP_LIBLOAD
 
-if ~libisloaded('mutilities')
-    fprintf('loading mutilities library...\n')
-    [notfound, warnings] = loadlibrary('mutilities');
-end
-if ~libisloaded('mgadgetron')
-    fprintf('loading mgadgetron library...\n')
-    [notfound, warnings] = loadlibrary('mgadgetron');
-end
+
+% load mutilities and mgadgetron libraries if not already loaded
+ccp_libload
 
 try
-    % define gadgets
+    % Set three groups of gadgets
+    % First group is k-space (acquisition) processing
     gadget11 = gadgetron.Gadget('NoiseAdjustGadget');
     gadget12 = gadgetron.Gadget('AsymmetricEchoGadget');
     gadget13 = gadgetron.Gadget('RemoveROOversamplingGadget');
+    % Second group is for the reconstruction 
     gadget21 = gadgetron.Gadget('AcquisitionAccumulateTriggerGadget');
     gadget22 = gadgetron.Gadget('BucketToBufferGadget');
     gadget23 = gadgetron.Gadget('PrepRefGadget');
@@ -24,22 +38,35 @@ try
     gadget25 = gadgetron.Gadget('FOVAdjustmentGadget');
     gadget26 = gadgetron.Gadget('ScalingGadget');
     gadget27 = gadgetron.Gadget('ImageArraySplitGadget');
+    % Third group is for output
     gadget31 = gadgetron.Gadget('ComplexToFloatGadget');
     gadget32 = gadgetron.Gadget('FloatToShortGadget');
     
-    % define raw data source
+    % get the filename for the input ISMRMRD h5 file
     filein = pref_uigetfile('ccp','filename');
-    input_data = gadgetron.MR_Acquisitions(filein);
+    input_MRACQ = gadgetron.MR_Acquisitions(filein);
 
-    % define acquisitions pre-processor
+    % define a CCP gadgetron.AcquisitionsProcessor and process data
     acq_proc = gadgetron.AcquisitionsProcessor();
     acq_proc.add_gadget('g1', gadget11)
     acq_proc.add_gadget('g2', gadget12)
     acq_proc.add_gadget('g3', gadget13)
     fprintf('pre-processing acquisitions...\n')
-    preprocessed_data = acq_proc.process(input_data);
+    preprocessed_AcqCont = acq_proc.process(input_MRACQ);
+    % The 'process' above invokes a call to the gadgetron chain.
+    % The output preprocessed_AcqCont is a CCP gadgetron.AcquisitionsContainer
 
-    % define reconstructor
+    % Alternative code is either:
+    % 1)  preprocessed_AcqCont = gadgetron.MR_Acquisitions(filein); 
+    %
+    % or
+    % 2)
+    %
+    %   prep_gadgets = [{'NoiseAdjustGadget'} {'AsymmetricEchoGadget'} ...
+    %     {'RemoveROOversamplingGadget'}];
+    %  preprocessed_AcqCont = input_MRACQ.process(prep_gadgets);
+    
+    % define reconstructor, here a gadgetron.ImagesReconstructor
     recon = gadgetron.ImagesReconstructor();
     recon.add_gadget('g1', gadget21)
     recon.add_gadget('g2', gadget22)
@@ -49,42 +76,78 @@ try
     recon.add_gadget('g6', gadget26)
     recon.add_gadget('g7', gadget27)    
 
-    % perform reconstruction
-    recon.set_input(preprocessed_data)
+    % Alternative codes for the above either :
+    %  1)  recon = gadgetron.MR_BasicGRAPPAReconstruction()
+    %
+    % or
+    %
+    %  2)
+    %     gadgets = [...
+    %         {'AcquisitionAccumulateTriggerGadget'}, ...
+    %         {'BucketToBufferGadget'}, ...
+    %         {'PrepRefGadget'}, ...
+    %         {'CartesianGrappaGadget'}, ...
+    %         {'FOVAdjustmentGadget'}, ...
+    %         {'ScalingGadget'}, ...
+    %         {'ImageArraySplitGadget'} ...
+    %         ];
+    %     recon = gadgetron.ImagesReconstructor(gadgets);
+
+    
+    % Set the preprocessed_data as input.
+    recon.set_input(preprocessed_AcqCont)
+    
+    % perform the reconstruction. 'process' streams data to gadgetron
     fprintf('reconstructing images...\n')
     recon.process()
-    % get reconstructed complex images and G-factors
-    complex_output = recon.get_output();
     
-    % extract real images
+    % get reconstructed complex images and coil G-factors
+    % complex_output is a CCP gadgetron.ImagesContainer
+    complex_ImCont = recon.get_output();
+
+    
+    % Prepare to extract real images using a short gadget chain
+    % Set a CCP gadgetron.ImagesProcessor (a gadget chain)
     img_proc = gadgetron.ImagesProcessor();
     img_proc.add_gadget('g1', gadget31)
     img_proc.add_gadget('g2', gadget32)
-    complex_output.conversion_to_real(1)
+    
+    % Notify of conversion to real?
+    complex_ImCont.conversion_to_real(1)  
+    
+    % process 'complex_ImCont' to get 'output_ImCont' (another CCP
+    % gadgetron.ImagesContainer )
     fprintf('processing images...\n')
-    output = img_proc.process(complex_output);
+    output_ImCont = img_proc.process(complex_ImCont);
 
     % plot reconstructed images and G-factors
-    n = output.number()/2;
+    n = output_ImCont.number()/2;
     
-    data1 = output.image_as_array(1);
-    gdata1 = output.image_as_array(2);
+    % Getting first output images in order to reserve space 
+    data1  = output_ImCont.image_as_array(1);
+    gdata1 = output_ImCont.image_as_array(2);
     
-    data = zeros(size(data1,1), size(data1,2),n);
+    data  = zeros(size(data1,1),  size(data1,2),n);
     gdata = zeros(size(gdata1,1), size(gdata1,2),n);
     
     for isl = 1:n
-        data(:,:,isl) = output.image_as_array(2*isl - 1);
-        gdata(:,:,isl) = output.image_as_array(2*isl) ;
+        data(:,:,isl)  = output_ImCont.image_as_array(2*isl - 1);
+        gdata(:,:,isl) = output_ImCont.image_as_array(2*isl) ;
     end
+    
+    % display
     eshow(data,'Name','data')
     eshow(gdata,'Name','gfactor')
     
 
-    % write images to a new group in 'output6.h5'
-    % named after the current date and time
-    fprintf('appending output6.h5...\n')
-    output.write('output6.h5', datestr(datetime))
+    % write images to a new h5 dataset group named 
+    % after the current date and time
+    [fn,pn] = uiputfile('*.h5', 'H5 output file', 'output6.h5') ;
+    opfn = fullfile(pn,fn) ;
+    
+    disp(['Output will be appended to: ',opfn])
+    
+    output_ImCont.write(opfn, datestr(datetime))
 
 catch err
     % display error information
