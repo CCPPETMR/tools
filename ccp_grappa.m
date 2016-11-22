@@ -6,6 +6,9 @@ function ccp_grappa
 %   reconstruction of undersampled data,
 %   extraction of images.
 %
+% This version assumes the more modern gadget names available  
+%  e.g. GenericReconFieldOfViewAdjustmentGadget 
+%
 % Usage:
 %  Convert scanner raw data to ISMRMRD format e.g. by using the executable
 %  siemens_to_ismrmrd. Example raw data is available from 
@@ -26,17 +29,18 @@ ccp_libload
 
 try
     % Set three groups of gadgets
+    % ! Note some Gadget names need updating !!
     % First group is k-space (acquisition) processing
     gadget11 = gadgetron.Gadget('NoiseAdjustGadget');
-    gadget12 = gadgetron.Gadget('AsymmetricEchoGadget');
+    gadget12 = gadgetron.Gadget('AsymmetricEchoAdjustROGadget');
     gadget13 = gadgetron.Gadget('RemoveROOversamplingGadget');
     % Second group is for the reconstruction 
     gadget21 = gadgetron.Gadget('AcquisitionAccumulateTriggerGadget');
     gadget22 = gadgetron.Gadget('BucketToBufferGadget');
-    gadget23 = gadgetron.Gadget('PrepRefGadget');
-    gadget24 = gadgetron.Gadget('CartesianGrappaGadget');
-    gadget25 = gadgetron.Gadget('FOVAdjustmentGadget');
-    gadget26 = gadgetron.Gadget('ScalingGadget');
+    gadget23 = gadgetron.Gadget('GenericReconCartesianReferencePrepGadget');
+    gadget24 = gadgetron.Gadget('GenericReconCartesianGrappaGadget');
+    gadget25 = gadgetron.Gadget('GenericReconFieldOfViewAdjustmentGadget');
+    gadget26 = gadgetron.Gadget('GenericReconImageArrayScalingGadget');
     gadget27 = gadgetron.Gadget('ImageArraySplitGadget');
     % Third group is for output
     gadget31 = gadgetron.Gadget('ComplexToFloatGadget');
@@ -62,7 +66,7 @@ try
     % or
     % 2)
     %
-    %   prep_gadgets = [{'NoiseAdjustGadget'} {'AsymmetricEchoGadget'} ...
+    %   prep_gadgets = [{'NoiseAdjustGadget'} {'AsymmetricEchoAdjustROGadget'} ...
     %     {'RemoveROOversamplingGadget'}];
     %  preprocessed_AcqCont = input_MRACQ.process(prep_gadgets);
     
@@ -82,15 +86,15 @@ try
     % or
     %
     %  2)
-    %     gadgets = [...
-    %         {'AcquisitionAccumulateTriggerGadget'}, ...
-    %         {'BucketToBufferGadget'}, ...
-    %         {'PrepRefGadget'}, ...
-    %         {'CartesianGrappaGadget'}, ...
-    %         {'FOVAdjustmentGadget'}, ...
-    %         {'ScalingGadget'}, ...
-    %         {'ImageArraySplitGadget'} ...
-    %         ];
+    %         gadgets = [...
+    %    {'AcquisitionAccumulateTriggerGadget'}, ...
+    %    {'BucketToBufferGadget'}, ...
+    %    {'GenericReconCartesianReferencePrepGadget'}, ...
+    %    {'GenericReconCartesianGrappaGadget'}, ...
+    %    {'GenericReconFieldOfViewAdjustmentGadget'}, ...
+    %    {'GenericReconImageArrayScalingGadget'}, ...
+    %    {'ImageArraySplitGadget'} ...
+    %    ];
     %     recon = gadgetron.ImagesReconstructor(gadgets);
 
     
