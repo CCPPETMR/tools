@@ -1,16 +1,9 @@
-function K = explore_k_dataset(varargin)
-% EXPLORE_K_DATASET Explore working with an existing ISMRMRD data set
+function reconImages = explore_recon_dataset(varargin)
+% EXPLORE_RECON_DATASET Explore working with an existing ISMRMRD data set
 % Adapted from test_recon_dataset supplied with ISMRMRD
 %
-% This is a simple example of how to extract k-space from data
-%
-% K = explore_k_dataset
-% K = explore_k_dataset(param, val, ... )
-%
-% param can be 'slice','rep','contrast','average'
-%
-% Filename is selected later from GUI.
-
+% This is a simple example of how to reconstruct images from data
+% acquired on a fully sampled cartesian grid
 %
 % Capabilities:
 %   2D/3D
@@ -35,20 +28,10 @@ function K = explore_k_dataset(varargin)
 %
 %
 
-slice = 1 ; rep = 1 ; contrast = 1 ; average = 1 ;
-
-for ipv = 1:2:length(varargin)
-    switch varargin{ipv}
-        case {'slice','rep','contrast','average'}
-            eval([varargin{ipv},'= varargin{ipv+1}']) 
-        otherwise
-            error(['Input ',varargin{ipv},' not recognised.'])
-    end
-end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 % Loading an existing file %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-filename = pref_uigetfile('explore_recon_dataset','filename') ;
+filename = pref_uigetfile('explore_recon_dataset','filename',varargin{:}) ;
 
 if exist(filename, 'file')
     dset = ismrmrd.Dataset(filename, 'dataset');
@@ -158,19 +141,50 @@ clear D;
 % Loop over repetitions, contrasts, slices
 reconImages = {};
 nimages = 0;
-
-% Initialize the K-space storage array
-K = zeros(enc_Ny, enc_Nx, enc_Nz, nCoils);
-% Select the appropriate measurements from the data
-acqs = find(  (meas.head.idx.contrast==(contrast-1)) ...
-    & (meas.head.idx.repetition==(rep-1)) ...
-    & (meas.head.idx.slice==(slice-1)) ...
-    & (ismember(meas.head.idx.user', uquser(1,:),'rows')') ...  % DA was uquser(1,:) - why??
-    & (meas.head.idx.average==(average-1) )) ;  %
-for p = 1:length(acqs)
-    ky = meas.head.idx.kspace_encode_step_1(acqs(p)) + 1;
-    kz = meas.head.idx.kspace_encode_step_2(acqs(p)) + 1;
-    K(ky,:,kz,:) = meas.data{acqs(p)};
+for rep = 1:nReps
+    for contrast = 1:nContrasts
+        for slice = 1:nSlices
+            % Initialize the K-space storage array
+            K = zeros(enc_Nx, enc_Ny, enc_Nz, nCoils);
+            % Select the appropriate measurements from the data
+            acqs = find(  (meas.head.idx.contrast==(contrast-1)) ...
+                        & (meas.head.idx.repetition==(rep-1)) ...
+                        & (meas.head.idx.slice==(slice-1)) ...
+                        & (ismember(meas.head.idx.user', uquser(1,:),'rows')') ...  % DA was uquser(1,:) - why??
+                        & (meas.head.idx.average==0) );  % DA
+            for p = 1:length(acqs)
+                ky = meas.head.idx.kspace_encode_step_1(acqs(p)) + 1;
+                kz = meas.head.idx.kspace_encode_step_2(acqs(p)) + 1;
+                K(:,ky,kz,:) = meas.data{acqs(p)};
+            end
+            % Reconstruct in x
+            K = fftshift(ifft(fftshift(K,1),[],1),1);
+            % Chop if needed
+            if (enc_Nx == rec_Nx)
+                im = K;
+            else
+                ind1 = floor((enc_Nx - rec_Nx)/2)+1;
+                ind2 = floor((enc_Nx - rec_Nx)/2)+rec_Nx;
+                im = K(ind1:ind2,:,:,:);
+            end
+            % Reconstruct in y then z
+            im = fftshift(ifft(fftshift(im,2),[],2),2);
+            if size(im,3)>1
+                im = fftshift(ifft(fftshift(im,3),[],3),3);
+            end
+            
+            % Combine SOS across coils
+            im = sqrt(sum(abs(im).^2,4));
+            
+            % Append
+            nimages = nimages + 1;
+            reconImages{nimages} = im;
+        end
+    end
 end
 
-disp(['size(K) = ', num2str(size(K))])
+% Display an image
+figure
+colormap gray
+imdisp = ceil(nimages/2) ;
+imagesc(reconImages{imdisp}); axis image; axis off; colorbar;
