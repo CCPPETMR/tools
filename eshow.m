@@ -25,6 +25,8 @@ function varargout = eshow(varargin)
 %  l         - toggles locking of window levels.
 %  t         - time. Plot of 3rd diemnsion at current cross-hair. Use r
 %              first.
+%  d         - toggles dynamic time plot.
+%  f         - fix dynamic plot line so not deleted
 %  k         - mIP
 %  c         - Cross-section, centred at P3 with plane normal P2-P1
 %  
@@ -56,8 +58,8 @@ elseif ischar(varargin{1}) % INVOKE NAMED SUBFUNCTION OR CALLBACK
 		else
 			feval(varargin{:}); % FEVAL switchyard
 		end
-	catch
-		disp(lasterr);
+    catch ME
+		ME
 	end
 
 elseif numel(varargin{1}) > 1
@@ -95,6 +97,10 @@ elseif numel(varargin{1}) > 1
                       varname = val ;
                   case 'isrgb'
                       isrgb = val ;
+                  case 'geom'
+                      vdim(1) = val(1).PixelSpacing_HW(1) ;
+                      vdim(2) = val(1).PixelSpacing_HW(2) ;
+                      vdim(3) = val(1).SliceThickness ;
               end
           end
       else
@@ -183,6 +189,9 @@ elseif numel(varargin{1}) > 1
   UD.gamma = 1 ;
   UD.cfig = cfig ;
   UD.cursor = 'on' ;
+  UD.dplot = false ; 
+  UD.hheld = [] ;
+ 
   
   UD.pop2 = 1 ;
   UD.pop3 = 1 ;
@@ -371,6 +380,9 @@ function varargout = pushbutton3_Callback(h, eventdata, handles, varargin)
 fig = str2num(get(handles.edit1,'String')) ;
 UD = get(fig,'UserData') ;
 UD.gamma = UD.gamma - 0.1 ;
+if UD.gamma < 0.1
+    UD.gamma = 0.1 ;
+end
 set(fig,'UserData',UD)
 fig_draw(fig,UD) ;
 
@@ -538,7 +550,7 @@ if UD.isrgb
         Iyz = squeeze(dat(:,coord(X),:,:)) ;
         Ixz = squeeze(dat(coord(Y),:,:,:)) ;
         Ixz = rotn90(Ixz) ;
-        Ixz = flipdim(Ixz,1) ;
+        Ixz = flip(Ixz,1) ;
     else
         Ixy = squeeze(dat(:,:,:)) ;
         Iyz = dat(:,coord(X), :) ;
@@ -783,6 +795,34 @@ if sflag == 1
       vs = [num2str(rcol(1),'%4.2f'),' ',num2str(rcol(2),'%4.2f'), ...
           ' ',num2str(rcol(3),'%4.2f')];
   end
+  
+  % update dynamic plot
+  if UD.dplot
+        switch UD.dtype
+            case 'modulus'
+              dp = abs(dat(yc,xc,:)) ;
+            case 'real'
+              dp = real(dat(yc,xc,:)) ;
+            case 'imaginary'
+              dp = imag(dat(yc,xc,:)) ;
+            case 'phase'
+              dp = angle(dat(yc,xc,:)) ; 
+            case 'rgb'
+              % cannot plot rgb curve
+        end
+         
+        currfh = gcf ;
+        figure(UD.dpfh) ; 
+        ylabel(UD.dtype)
+        xlabel('3rd dim index')
+        
+        hp = plot(squeeze(dp)) ;
+        legend(['(',ys,', ',xs,')'])
+        
+        figure(currfh) ;
+        drawnow
+        set(dfig,'UserData', UD) 
+  end % end dplot
 else
   set(dfig,'Pointer','arrow')
   xs = ' ' ; ys = ' ' ; zs = ' ' ; vs = ' ' ;
@@ -806,6 +846,8 @@ if verLessThan('matlab','8.4.0')
 else
     dfig_number = dfig.Number ;
 end
+
+dfig_name = get(dfig,'Name') ;
 
 if str2num(get(handles.edit1,'String'))~=dfig_number
     set(dfig,'Pointer','arrow')
@@ -863,6 +905,48 @@ switch currc
                 dw = UD.dat ;
         end
         plot(squeeze(dw(cY,cX,:,:)))
+    case {'d','D'} % interactive dynamic plot
+        if UD.dplot % toggle dplot
+            UD.dplot = false ;
+        else
+            UD.dplot = true ;
+        end
+        
+        if UD.dplot
+            dpfh = figure('Name',['Dynamic profiles from Fig ',num2str(dfig_number)]) ;
+            UD.dpfh = dpfh ; % store handle
+            
+            grid on
+        end
+        set(dfig,'UserData',UD)
+        %plotting is in the motion function
+    case {'f','F'}
+        currf = gcf ;
+        if isempty(UD.hheld)
+            hheld = figure('Name',['Dynamic plots']) ;
+            hold on , grid on
+            UD.hheld = hheld ;
+        end
+        xc = str2num(get(handles.text20,'String')) ;
+        yc = str2num(get(handles.text21,'String')) ;
+        
+        dat = UD.dat ;
+        switch UD.dtype
+            case 'modulus'
+              dp = abs(dat(yc,xc,:)) ;
+            case 'real'
+              dp = real(dat(yc,xc,:)) ;
+            case 'imaginary'
+              dp = imag(dat(yc,xc,:)) ;
+            case 'phase'
+              dp = angle(dat(yc,xc,:)) ; 
+            case 'rgb'
+              % cannot plot rgb curve
+        end
+        figure(UD.hheld)
+        plot(squeeze(dp))
+        figure(currf)
+        set(dfig,'UserData',UD)
         
   case { 'R','r'}
     UD.coord(X) = str2num(get(handles.text20,'String')) ;
@@ -953,7 +1037,7 @@ switch currc
         end
 	end
 	
-    hf=figure('name',['derived from fig ', num2str(dfig_number)]) ;
+    hf=figure('name',['derived from fig ', num2str(dfig_number),'  ',dfig_name]) ;
     set(gcf,'Color',[0 0 0]) 
 	ha = axes('Position',[0 0 1 1],'Color',[0 0 0]) ;
 	
@@ -982,7 +1066,7 @@ switch currc
 	 case 'v'
 	  sf = min([ floor(600/ny) floor(800/nx)]);
 	  if verLessThan('matlab','8.4.0')
-          aw = flipdim(aw,1) ; % dont' understand why, but otherwise movie is upside down
+          aw = flip(aw,1) ; % dont' understand why, but otherwise movie is upside down
       end
       if UD.isrgb
           for iw = 1:nz

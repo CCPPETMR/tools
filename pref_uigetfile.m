@@ -5,6 +5,7 @@ function file_name = pref_uigetfile(group, pref, deffile)
 %
 % file_name = pref_uigetfile(group, pref, deffile)
 % file_name = pref_uigetfile(group, pref)
+% file_name = pref_uigetfile 
 %
 % David Atkinson   D.Atkinson@ucl.ac.uk
 % See also UIGETDIR  UIGETFILE PREF_UIGETDIR
@@ -12,7 +13,10 @@ function file_name = pref_uigetfile(group, pref, deffile)
 
 if nargin > 2 && exist(deffile,'file')
     % do nothing
-else  
+else 
+    if nargin == 0 
+        group = 'default' ; pref = 'default' ;
+    end
     % set deffile from preferences
     if ispref(group,pref)
         deffile = getpref(group, pref);
